@@ -1,0 +1,6 @@
+{
+    "require": {
+        "stevenmaguire/trello-php": "1.0.0",
+        "vlucas/phpdotenv": "dev-master"
+    }
+}
