@@ -244,4 +244,4 @@ $trello = trello(new Stevenmaguire\Services\Trello\Client(array(
         //'proxy' => 'tcp://localhost:8125',
 )));
 
-$trello($_ENV['BOARD_ID'], $_ENV['LIST_NAME'], openproject($_ENV['OPENPROJECT_URL'], $_ENV['OPENPROJECT_TOKEN']));
+$trello($_ENV['TRELLO_BOARD_ID'], $_ENV['TRELLO_LIST_NAME'], openproject($_ENV['OPENPROJECT_URL'], $_ENV['OPENPROJECT_TOKEN']));
