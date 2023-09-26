@@ -1,184 +1,185 @@
 <?php
 
-
 require __DIR__ . '/vendor/autoload.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
-function build_data_files($boundary, $fields, $files) {
-    $data = '';
-    $eol = "\r\n";
+define('OPENPROJECT_TYPE_TASK', 1);
 
-    $delimiter = '-------------' . $boundary;
+function openproject_request(string $openproject_url, string $openproject_token) : callable {
+    return function(string $path, callable $loadRequest) use ($openproject_url, $openproject_token) : object|bool {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $openproject_url . $path);
+        curl_setopt($ch, CURLOPT_USERPWD, "apikey:" . $openproject_token);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYSTATUS, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
 
-    foreach ($fields as $name => $content) {
-        $data .= "--" . $delimiter . $eol
-                . 'Content-Disposition: form-data; name="' . $name . "\"" . $eol . $eol
-                . $content . $eol;
-    }
+        $loadRequest(function (string $contentType, string $data) use ($ch) {
+            $headers = [];
+            $headers[] = 'Content-Type: ' . $contentType;
+            $headers[] = 'Content-Length: ' . strlen($data);
 
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        });
 
-    foreach ($files as $name => $file) {
-        $data .= "--" . $delimiter . $eol
-                . 'Content-Disposition: form-data; name="' . $name . '"; filename="' . $file['name'] . '"' . $eol
-                . 'Content-Type: ' . $file['type'] . $eol
-                . 'Content-Transfer-Encoding: binary' . $eol
-        ;
-
-        $data .= $eol;
-        $data .= $file['data'] . $eol;
-    }
-    $data .= "--" . $delimiter . "--" . $eol;
-
-    return $data;
-}
-
-/**
-  The current openproject api is missing some exmaples. This is what i got working in PHP.
- */
-function openproject(string $url, string $token): callable {
-    return function (string $scope) use ($url, $token) {
-        return function ($req, $postdata = false, $contentType = 'application/json') use ($scope, $url, $token) {
-            $url .= '/api/v3/' . $scope . $req;
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_USERPWD, "apikey:" . $token);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYSTATUS, 0);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-
-            if ($postdata) {
-                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
-
-                $headers = [];
-                if ($contentType === 'multipart/form-data') {
-                    $boundary = uniqid();
-                    $delimiter = '-------------' . $boundary;
-
-                    $post_data = build_data_files($boundary, ['metadata' => json_encode($postdata->metadata)], [
-                        'file' => [
-                            'name' => $postdata->metadata['fileName'],
-                            'type' => $postdata->metadata['contentType'],
-                            'data' => $postdata->file
-                        ]
-                    ]);
-
-                    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
-                    $headers[] = 'Content-Length: ' . strlen($post_data);
-                    $headers[] = "Content-Type: multipart/form-data; boundary=" . $delimiter;
-                } else {
-                    $data = json_encode($postdata);
-                    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-                    $headers[] = 'Content-Type: ' . $contentType;
-                    $headers[] = 'Content-Length: ' . strlen($data);
-                }
-                curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-            }
-            $return = curl_exec($ch);
-            if ($return === false) {
-                exit(curl_error($ch));
-            }
-            curl_close($ch);
-            return json_decode($return);
-        };
+        $return = curl_exec($ch);
+        if ($return === false) {
+            fwrite(STDERR, PHP_EOL . '[' . $path . '] ' . curl_error($ch));
+            return false;
+        }
+        $json = json_decode($return);
+        if ($json === null) {
+            fwrite(STDERR, PHP_EOL . '[' . $path . '] ' . $return);
+            return false;
+        } elseif ($json->_type === "Error") {
+            fwrite(STDERR, PHP_EOL . '[' . $path . '] ' . $json->errorIdentifier . ': ' . $json->message);
+            return false;
+        }
+        
+        
+        
+        return $json;
     };
 }
 
+function openproject_build_multipart(string $fileType, string $filename, callable $download, callable $post) {
+    $delimiter = '-------------' . uniqid();
 
-function openproject_create_workpackage_from_card(callable $requester, object $card) {
-    // types: 1 = task, 4 = feature, 2,3 = N/A, 5 = epic, 6 = us
-    $data = (object) [
-        'subject' => $card->name,
-        'startDate' => ($card->start?DateTimeImmutable::createFromFormat('X-m-d\\TH:i:s.vP', $card->start)->format('Y-m-d'):null),
-        'dueDate' => ($card->due?DateTimeImmutable::createFromFormat('X-m-d\\TH:i:s.vP', $card->due)->format('Y-m-d'):null),
-        'description' => [
-            'format' => 'markdown',
-            'raw' => $card->desc,
-        ],
-        'customField1' => $card->id,
-        '_links' => [
-            'project' => [
-                'href' => '/api/v3/projects/3'
-            ],
-            'type' => [
-                'href' => '/api/v3/types/6'
-            ],
-            'status' => [
-                'href' => '/api/v3/statuses/' . ($card->closed ? 12 : 1)
-            ],
-//            'parent' => [
-//                'href' => '/api/v3/work_packages/<ID>'
-//            ]
+    $data = [];
+    $data[] = "--" . $delimiter;
+    $data[] = 'Content-Disposition: form-data; name="metadata"';
+    $data[] = 'Content-Type: application/json';
+    $data[] = "";
+    $data[] = json_encode(['fileName' => $filename, 'contentType' => $fileType]);
+
+    $contents = $download($fileType);
+    $data[] =  "--" . $delimiter;
+    $data[] =  'Content-Disposition: form-data; name="file"; filename="' . $filename . '"';
+    $data[] =  'Content-Type: ' . $fileType;
+    $data[] =  'Content-Transfer-Encoding: binary';
+    $data[] =  "";
+    $data[] =  $contents;
+    
+    $data[] =  "--" . $delimiter . "--";
+    $post('multipart/form-data; boundary=' . $delimiter, join("\r\n", $data));
+}
+
+function openproject(callable $requester): callable {
+    return fn(string $path, array $query = []) => function (?string $contentType = null, ?array $postdata = null, ?callable $download = null) use ($requester, $path, $query) {
+        return $requester($path . '?' . http_build_query($query), match ($contentType) {
+            'application/json' => fn(callable $post) => $post($contentType, json_encode($postdata)),
+            'multipart/form-data' => fn(callable $post) => openproject_build_multipart($postdata['type'], $postdata['name'], $download, $post),
+            default => fn (callable $post) => null
+        });
+    };
+}
+
+function openproject_item_already_migrated(callable $requester, string $item_id) {
+    $workpackages = $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages', ['filters' => json_encode([(object)[$_ENV['OPENPROJECT_MIGRATION_FIELD']=>(object)["operator" => "=", "values" => [$item_id]]]])])();
+    return $workpackages->count > 0 ? $workpackages->_embedded->elements[0] : null;
+}
+
+function openproject_get_workpackage(callable $requester, string $workpackage_id) {
+    return $work_package_tasks = $requester('/api/v3/work_packages/' . $workpackage_id)();
+}
+
+function openproject_filter_existing_attachments(callable $requester, object $work_package, array $attachments, callable $filter) : array {
+    $workpackage_attachments = $requester($work_package->_links->attachments->href)()->_embedded->elements;
+    return array_filter($attachments, function($attachment) use ($workpackage_attachments, $filter) {
+        foreach ($workpackage_attachments as $workpackage_attachment) {
+            if ($filter($workpackage_attachment, $attachment)) {
+                return false;
+            }
+        }
+        return true;
+    });
+}
+function openproject_filter_existing_tasks(callable $requester, object $work_package, array &$tasks, callable $filter) : array {
+    $work_package_tasks = $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages', ['filters' => json_encode([
+        (object)[
+            'parent' => (object)["operator" => "=", "values" => [$work_package->id]],
+            'type_id' => (object)["operator" => "=", "values" => [OPENPROJECT_TYPE_TASK]]
         ]
+    ])])()->_embedded->elements;
+    return array_filter($tasks, function($task) use ($work_package_tasks, $filter) {
+        foreach ($work_package_tasks as $work_package_task) {
+            if ($filter($work_package_task, $task)) {
+                return false;
+            }
+        }
+        return true;
+    });
+}
+
+function openproject_create_workpackage(callable $requester, string $id, string $name, string $description, bool $closed, ?int $parent_id, ?DateTimeImmutable $start, ?DateTimeImmutable $due) {
+    // types: 1 = task, 4 = feature, 2,3 = N/A, 5 = epic, 6 = us
+    $data = [
+                'subject' => $name,
+                'startDate' => ($start ? $start->format('Y-m-d') : null),
+                'dueDate' => ($due ? $due->format('Y-m-d') : null),
+                'description' => [
+                    'format' => 'markdown',
+                    'raw' => $description,
+                ],
+                'customField1' => $id,
+                '_links' => [
+                    'type' => [
+                        'href' => '/api/v3/types/6'
+                    ],
+                    'status' => [
+                        'href' => '/api/v3/statuses/' . ($closed ? 12 : 1)
+                    ]
+                ]
     ];
-    $form = $requester('work_packages')('/form', $data);
-    return $requester('work_packages')('', $data);
-}
-
-function openproject_create_attachments_under_workpackage(callable $requester, int $workpackage_id, array $attachments, callable $download) {
-    foreach ($attachments as $attachment) {
-        if (str_starts_with($attachment->url, \Stevenmaguire\Services\Trello\Configuration::get('domain'))) {
-        $requester('work_packages')('/' . $workpackage_id . '/attachments', (object) [
-                    'metadata' => [
-                        'fileName' => $attachment->fileName,
-                        'contentType' => $attachment->mimeType
-                    ],
-                    'file' => $download($attachment->url)
-                ], 'multipart/form-data');
-        } else {
-        $requester('work_packages')('/' . $workpackage_id . '/activities', (object) [
-                    'comment' => [
-                        'raw' => $attachment->url
-                    ],
-                    'type' => 'markdown'
-        ]);
-        }
-    }
-}
-
-function openproject_create_comments_under_workpackage(callable $requester, int $workpackage_id, array $actions) {
-    foreach ($actions as $action) {
-        if (!isset($action->data->text)) {
-            continue;
-        }
-
-        $requester('work_packages')('/' . $workpackage_id . '/activities', (object) [
-                    'comment' => [
-                        'raw' => $action->data->text
-                    ],
-                    'type' => 'markdown'
-        ]);
-    }
-}
-
-function openproject_create_tasks_under_workpackage(callable $requester, int $workpackage_id, array $checklists) {
-    // add checklists as tasks (type: 1, parent: created workpackage)
-    foreach ($checklists as $checklist) {
-        foreach ($checklist->checkItems as $checkItem) {
-            echo PHP_EOL . 'Task, ' . $checkItem->name;
-            $data = (object) [
-                        'subject' => $checkItem->name,
-                        'dueDate' => ($checkItem->due?DateTimeImmutable::createFromFormat('X-m-d\\TH:i:s.vP', $checkItem->due)->format('Y-m-d'):null),
-                        '_links' => [
-                            'project' => [
-                                'href' => '/api/v3/projects/3'
-                            ],
-                            'type' => [
-                                'href' => '/api/v3/types/1' // Task
-                            ],
-                            'parent' => [
-                                'href' => '/api/v3/work_packages/' . $workpackage_id
-                            ],
-                            'status' => [
-                                'href' => '/api/v3/statuses/' . ($checkItem->state === 'incomplete' ? '1' : '12')
-                            ]
-                        ]
+    if (isset($parent_id)) {
+        $data['parent'] = [
+                'href' => '/api/v3/work_packages/' . $parent_id
             ];
-
-            $requester('work_packages')('/form', $data);
-            $requester('work_packages')('', $data);
-        }
     }
+    $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages/form')('application/json', $data);
+    return $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages')('application/json', $data);
+}
+
+function openproject_create_attachment_under_workpackage(callable $requester, int $workpackage_id, string $name, string $type, callable $download) : object {
+    return $requester('/api/v3/work_packages/' . $workpackage_id . '/attachments')('multipart/form-data', [
+                'name' => $name,
+                'type' => $type
+            ], $download);
+}
+
+function openproject_create_comment_under_workpackage(callable $requester, int $workpackage, string $content) {
+    return $requester('/api/v3/work_packages/' . $workpackage_id . '/activities')('application/json', [
+                'comment' => [
+                    'raw' => $content
+                ],
+                'type' => 'markdown'
+    ]);
+}
+
+
+function openproject_create_task_under_workpackage(callable $requester, int $workpackage_id, string $subject, bool $closed, ?DateTimeImmutable $dueDate) {
+    // add checklists as tasks (type: 1, parent: created workpackage)
+    $data = [
+                'subject' => $subject,
+                'dueDate' => ($dueDate ? $dueDate->format('Y-m-d') : null),
+                '_links' => [
+                    'type' => [
+                        'href' => '/api/v3/types/' . OPENPROJECT_TYPE_TASK
+                    ],
+                    'parent' => [
+                        'href' => '/api/v3/work_packages/' . $workpackage_id
+                    ],
+                    'status' => [
+                        'href' => '/api/v3/statuses/' . ($closed ? '12' : '1')
+                    ]
+                ]
+    ];
+
+    $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages/form')('application/json', $data);
+    return $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID']. '/work_packages')('application/json', $data);
 }

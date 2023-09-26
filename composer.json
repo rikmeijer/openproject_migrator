@@ -1,6 +1,7 @@
 {
     "require": {
         "stevenmaguire/trello-php": "1.0.0",
-        "vlucas/phpdotenv": "dev-master"
+        "vlucas/phpdotenv": "dev-master",
+        "google/apiclient": "2.x-dev"
     }
 }
