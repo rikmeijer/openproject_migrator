@@ -1,5 +1,7 @@
 <?php
 
+namespace rikmeijer\openproject;
+
 require __DIR__ . '/vendor/autoload.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
@@ -7,7 +9,7 @@ $dotenv->load();
 
 define('OPENPROJECT_TYPE_TASK', 1);
 
-function openproject_request(string $openproject_url, string $openproject_token) : callable {
+function request(string $openproject_url, string $openproject_token) : callable {
     return function(string $path, callable $loadRequest) use ($openproject_url, $openproject_token) : object|bool {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $openproject_url . $path);
@@ -47,7 +49,7 @@ function openproject_request(string $openproject_url, string $openproject_token)
     };
 }
 
-function openproject_build_multipart(string $fileType, string $filename, callable $download, callable $post) {
+function build_multipart(string $fileType, string $filename, callable $download, callable $post) {
     $delimiter = '-------------' . uniqid();
 
     $data = [];
@@ -69,26 +71,26 @@ function openproject_build_multipart(string $fileType, string $filename, callabl
     $post('multipart/form-data; boundary=' . $delimiter, join("\r\n", $data));
 }
 
-function openproject(callable $requester): callable {
+function connect(callable $requester): callable {
     return fn(string $path, array $query = []) => function (?string $contentType = null, ?array $postdata = null, ?callable $download = null) use ($requester, $path, $query) {
         return $requester($path . '?' . http_build_query($query), match ($contentType) {
             'application/json' => fn(callable $post) => $post($contentType, json_encode($postdata)),
-            'multipart/form-data' => fn(callable $post) => openproject_build_multipart($postdata['type'], $postdata['name'], $download, $post),
+            'multipart/form-data' => fn(callable $post) => build_multipart($postdata['type'], $postdata['name'], $download, $post),
             default => fn (callable $post) => null
         });
     };
 }
 
-function openproject_item_already_migrated(callable $requester, string $item_id) {
+function item_already_migrated(callable $requester, string $item_id) {
     $workpackages = $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages', ['filters' => json_encode([(object)[$_ENV['OPENPROJECT_MIGRATION_FIELD']=>(object)["operator" => "=", "values" => [$item_id]]]])])();
     return $workpackages->count > 0 ? $workpackages->_embedded->elements[0] : null;
 }
 
-function openproject_get_workpackage(callable $requester, string $workpackage_id) {
+function get_workpackage(callable $requester, string $workpackage_id) {
     return $work_package_tasks = $requester('/api/v3/work_packages/' . $workpackage_id)();
 }
 
-function openproject_filter_existing_attachments(callable $requester, object $work_package, array $attachments, callable $filter) : array {
+function filter_existing_attachments(callable $requester, object $work_package, array $attachments, callable $filter) : array {
     $workpackage_attachments = $requester($work_package->_links->attachments->href)()->_embedded->elements;
     return array_filter($attachments, function($attachment) use ($workpackage_attachments, $filter) {
         foreach ($workpackage_attachments as $workpackage_attachment) {
@@ -99,7 +101,7 @@ function openproject_filter_existing_attachments(callable $requester, object $wo
         return true;
     });
 }
-function openproject_filter_existing_tasks(callable $requester, object $work_package, array &$tasks, callable $filter) : array {
+function filter_existing_tasks(callable $requester, object $work_package, array &$tasks, callable $filter) : array {
     $work_package_tasks = $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages', ['filters' => json_encode([
         (object)[
             'parent' => (object)["operator" => "=", "values" => [$work_package->id]],
@@ -116,7 +118,7 @@ function openproject_filter_existing_tasks(callable $requester, object $work_pac
     });
 }
 
-function openproject_create_workpackage(callable $requester, string $id, string $name, string $description, bool $closed, ?int $parent_id, ?DateTimeImmutable $start, ?DateTimeImmutable $due) {
+function create_workpackage(callable $requester, string $id, string $name, string $description, bool $closed, ?int $parent_id, ?DateTimeImmutable $start, ?DateTimeImmutable $due) {
     // types: 1 = task, 4 = feature, 2,3 = N/A, 5 = epic, 6 = us
     $data = [
                 'subject' => $name,
@@ -145,14 +147,14 @@ function openproject_create_workpackage(callable $requester, string $id, string 
     return $requester('/api/v3/projects/' . $_ENV['OPENPROJECT_PROJECT_ID'] . '/work_packages')('application/json', $data);
 }
 
-function openproject_create_attachment_under_workpackage(callable $requester, int $workpackage_id, string $name, string $type, callable $download) : object {
+function create_attachment_under_workpackage(callable $requester, int $workpackage_id, string $name, string $type, callable $download) : object {
     return $requester('/api/v3/work_packages/' . $workpackage_id . '/attachments')('multipart/form-data', [
                 'name' => $name,
                 'type' => $type
             ], $download);
 }
 
-function openproject_create_comment_under_workpackage(callable $requester, int $workpackage, string $content) {
+function create_comment_under_workpackage(callable $requester, int $workpackage, string $content) {
     return $requester('/api/v3/work_packages/' . $workpackage_id . '/activities')('application/json', [
                 'comment' => [
                     'raw' => $content
@@ -162,7 +164,7 @@ function openproject_create_comment_under_workpackage(callable $requester, int $
 }
 
 
-function openproject_create_task_under_workpackage(callable $requester, int $workpackage_id, string $subject, bool $closed, ?DateTimeImmutable $dueDate) {
+function create_task_under_workpackage(callable $requester, int $workpackage_id, string $subject, bool $closed, ?DateTimeImmutable $dueDate) {
     // add checklists as tasks (type: 1, parent: created workpackage)
     $data = [
                 'subject' => $subject,

@@ -13,7 +13,7 @@ function keep(string $workingDirectory, callable $requester) {
         $targetDirectory = $workingDirectory . DIRECTORY_SEPARATOR . 'done';
         if (isset($metadata->attachments)) {
             foreach ($metadata->attachments as $attachment) {
-                $attachment_path = openproject_find_attachment($attachment->mimetype, $workingDirectory . DIRECTORY_SEPARATOR . $attachment->filePath);
+                $attachment_path = rikmeijer\openproject\find_attachment($attachment->mimetype, $workingDirectory . DIRECTORY_SEPARATOR . $attachment->filePath);
                 rename($attachment_path, $targetDirectory . DIRECTORY_SEPARATOR . basename($attachment_path));
             }
         }
@@ -44,17 +44,17 @@ function keep(string $workingDirectory, callable $requester) {
             
             
             
-            $work_package = openproject_item_already_migrated($requester, $noteName);
+            $work_package = rikmeijer\openproject\item_already_migrated($requester, $noteName);
             if ($work_package !== null) {
                 print 'already migrated.';
                 // merge existing item
                 
                 if (isset($metadata->attachments)) {
-                    $metadata->attachments = openproject_filter_existing_attachments($requester, $work_package, $metadata->attachments, fn(object $workpackage_attachment, object $metadata_attachment) => $workpackage_attachment->fileName === $metadata_attachment->filePath);
+                    $metadata->attachments = rikmeijer\openproject\filter_existing_attachments($requester, $work_package, $metadata->attachments, fn(object $workpackage_attachment, object $metadata_attachment) => $workpackage_attachment->fileName === $metadata_attachment->filePath);
                 }
                 
                 if (isset($metadata->listContent)) {
-                    $metadata->listContent = openproject_filter_existing_tasks($requester, $work_package, $metadata->listContent, fn(object $workpackage_task, object $metadata_task) => $workpackage_task->subject === $metadata_task->text);
+                    $metadata->listContent = rikmeijer\openproject\filter_existing_tasks($requester, $work_package, $metadata->listContent, fn(object $workpackage_task, object $metadata_task) => $workpackage_task->subject === $metadata_task->text);
                 }
             } elseif ($metadata->textContent === '' && !is_null($parent_id = keep_map_label_to_parent($mapping, $metadata->labels??[]))) {
                 // only attachments, use parent as target
@@ -62,7 +62,7 @@ function keep(string $workingDirectory, callable $requester) {
                     echo ', unknown target.';
                     continue;
                 }
-                $work_package = openproject_get_workpackage($requester, $parent_id);
+                $work_package = rikmeijer\openproject\get_workpackage($requester, $parent_id);
                 
                 $metadata->attachments[] = (object)[
                     'filePath' => basename($note),
@@ -70,11 +70,11 @@ function keep(string $workingDirectory, callable $requester) {
                 ];
                 
                 if (isset($metadata->attachments)) {
-                    $metadata->attachments = openproject_filter_existing_attachments($requester, $work_package, $metadata->attachments, fn(object $workpackage_attachment, object $metadata_attachment) => $workpackage_attachment->fileName === $metadata_attachment->filePath);
+                    $metadata->attachments = rikmeijer\openproject\filter_existing_attachments($requester, $work_package, $metadata->attachments, fn(object $workpackage_attachment, object $metadata_attachment) => $workpackage_attachment->fileName === $metadata_attachment->filePath);
                 }
                 
                 if (isset($metadata->listContent)) {
-                    $metadata->listContent = openproject_filter_existing_tasks($requester, $work_package, $metadata->listContent, fn(object $workpackage_task, object $metadata_task) => $workpackage_task->subject === $metadata_task->text);
+                    $metadata->listContent = rikmeijer\openproject\filter_existing_tasks($requester, $work_package, $metadata->listContent, fn(object $workpackage_task, object $metadata_task) => $workpackage_task->subject === $metadata_task->text);
                 }
             } else {
                 $parent_id = keep_map_label_to_parent($mapping, $metadata->labels??[]);
@@ -83,7 +83,7 @@ function keep(string $workingDirectory, callable $requester) {
                     continue;
                 }
 
-                $work_package = openproject_create_workpackage(
+                $work_package = rikmeijer\openproject\create_workpackage(
                         $requester, 
                         $noteName, 
                         !empty($metadata->title) ? $metadata->title : $noteName, 
@@ -113,7 +113,7 @@ function keep(string $workingDirectory, callable $requester) {
                 $attachment_success = count($metadata->attachments) === 0;
                 echo PHP_EOL . 'Attachments: ' . count($metadata->attachments);
                 if (count($metadata->attachments) > 0) {
-                    $attachment_success = keep_create_attachments_under_workpackage($requester, $work_package->id, $metadata->attachments, fn(string &$filetype, string $name) => openproject_get_contents($filetype, $workingDirectory . DIRECTORY_SEPARATOR . $name));
+                    $attachment_success = keep_create_attachments_under_workpackage($requester, $work_package->id, $metadata->attachments, fn(string &$filetype, string $name) => keep_get_contents($filetype, $workingDirectory . DIRECTORY_SEPARATOR . $name));
                 }
             }
                 
@@ -144,7 +144,7 @@ function keep_map_label_to_parent(array $mapping, ?array $labels) {
     return array_key_exists(0, $mapping)?$mapping[0]:false;
 }
 
-function openproject_find_attachment(string &$filetype, string $filepath) {
+function keep_find_attachment(string &$filetype, string $filepath) {
     if (file_exists($filepath)) {
         return $filepath;
     } elseif ($filetype !== 'image/png') {
@@ -160,14 +160,14 @@ function openproject_find_attachment(string &$filetype, string $filepath) {
     exit('File `' . $filepath . '` or `'. $jpeg_path .'` not found');
 }
 
-function openproject_get_contents(string &$filetype, string $filepath) {
-    return file_get_contents(openproject_find_attachment($filetype, $filepath));
+function keep_get_contents(string &$filetype, string $filepath) {
+    return file_get_contents(keep_find_attachment($filetype, $filepath));
 }
 
 function keep_create_attachments_under_workpackage(callable $requester, int $workpackage_id, array $attachments, callable $download) {
     foreach ($attachments as $attachment) {
         echo PHP_EOL . 'Attachment, ' . $attachment->filePath;
-        if (!openproject_create_attachment_under_workpackage($requester, $workpackage_id, $attachment->filePath, $attachment->mimetype, fn(string &$filetype) => $download($filetype, $attachment->filePath))) {
+        if (!rikmeijer\openproject\create_attachment_under_workpackage($requester, $workpackage_id, $attachment->filePath, $attachment->mimetype, fn(string &$filetype) => $download($filetype, $attachment->filePath))) {
             return false;
         }
     }
@@ -177,14 +177,14 @@ function keep_create_tasks_under_workpackage(callable $requester, int $workpacka
     // add checklists as tasks (type: 1, parent: created workpackage)
     foreach ($checklist as $checkItem) {
         echo PHP_EOL . 'Task, ' . $checkItem->text;
-        if (!openproject_create_task_under_workpackage($requester, $workpackage_id, $checkItem->text, $checkItem->isChecked, null)) {
+        if (!rikmeijer\openproject\create_task_under_workpackage($requester, $workpackage_id, $checkItem->text, $checkItem->isChecked, null)) {
             return false;
         }
     }
     return true;
 }
 
-$keep = keep(__DIR__ . DIRECTORY_SEPARATOR . $_ENV['GOOGLE_KEEP_NOTES_DIR'], openproject(openproject_request($_ENV['OPENPROJECT_URL'], $_ENV['OPENPROJECT_TOKEN'])));
+$keep = keep(__DIR__ . DIRECTORY_SEPARATOR . $_ENV['GOOGLE_KEEP_NOTES_DIR'], rikmeijer\openproject\connect(rikmeijer\openproject\request($_ENV['OPENPROJECT_URL'], $_ENV['OPENPROJECT_TOKEN'])));
 
 $migrated = $keep([
     0 => null,
