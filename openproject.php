@@ -19,7 +19,7 @@ function request(string $openproject_url, string $openproject_token) : callable 
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
 
-        $expectedContentType = $loadRequest(function (string $method, string $contentType, ?string $data = null) use ($ch) {
+        $expectedResponse = $loadRequest(function (string $method, string $contentType, ?string $data = null) use ($ch) {
             curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
             
             $headers = [];
@@ -30,16 +30,21 @@ function request(string $openproject_url, string $openproject_token) : callable 
             }
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             
-            return $method === 'DELETE' ? null : 'application/json';
+            return $method === 'DELETE' ? [204, null] : [200, 'application/json'];
         });
 
+        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+        
         $return = curl_exec($ch);
         if ($return === false) {
             fwrite(STDERR, PHP_EOL . '[' . $path . '] http error: ' . curl_error($ch));
             return false;
+        } elseif (curl_getinfo($ch, CURLINFO_HTTP_CODE) !== $expectedResponse[0]) {
+            fwrite(STDERR, PHP_EOL . '[' . $path . '] unexpected ('.$expectedResponse[0].') response: ' . curl_getinfo($ch, CURLINFO_HTTP_CODE));
+            return false;
         }
         
-        switch ($expectedContentType) {
+        switch ($expectedResponse[1]) {
             case 'application/json':
                 $json = json_decode($return);
                 if ($json === null) {
@@ -50,9 +55,10 @@ function request(string $openproject_url, string $openproject_token) : callable 
                     return false;
                 }
                 return $json;
+               
                 
             default:
-                return $return;
+                return $return === '' ?  true : $return;
         }
     };
 }
@@ -84,13 +90,17 @@ function connect(callable $requester): callable {
         return $requester($path . '?' . http_build_query($query), match ($contentType) {
             'application/json' => fn(callable $post) => $post('POST', $contentType, json_encode($postdata)),
             'multipart/form-data' => fn(callable $post) => build_multipart($postdata['type'], $postdata['name'], $download, $post),
-            default => fn (callable $post) => 'application/json'
+            default => fn (callable $post) => [200, 'application/json']
         });
     };
 }
 
 function delete_workpackage(callable $request, object $workpackage) {
-    return $request('/api/v3/work_packages/' . $workpackage->id, fn(callable $post) => $post('DELETE', 'application/json'));
+    return $request($workpackage->_links->delete->href, fn(callable $post) => $post(strtoupper($workpackage->_links->delete->method), 'application/json'));
+}
+
+function delete_attachment(callable $request, object $attachment) {
+    return $request($attachment->_links->delete->href, fn(callable $post) => $post(strtoupper($attachment->_links->delete->method), 'application/json'));
 }
 
 function list_workpackages(callable $requester, int $pageSize, int $offset) : array {
