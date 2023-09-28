@@ -144,26 +144,6 @@ function keep_map_label_to_parent(array $mapping, ?array $labels) {
     return array_key_exists(0, $mapping)?$mapping[0]:false;
 }
 
-function keep_find_attachment(string &$filetype, string $filepath) {
-    if (file_exists($filepath)) {
-        return $filepath;
-    } elseif ($filetype !== 'image/png') {
-        exit('File `' . $filepath . '` not found');
-    }
-    
-    $basename = basename($filepath, '.png');
-    $jpeg_path = dirname($filepath) . DIRECTORY_SEPARATOR . $basename . '.jpg';
-    if (file_exists($jpeg_path)) {
-        $filetype = 'image/jpeg';
-        return $jpeg_path;
-    }
-    exit('File `' . $filepath . '` or `'. $jpeg_path .'` not found');
-}
-
-function keep_get_contents(string &$filetype, string $filepath) {
-    return file_get_contents(keep_find_attachment($filetype, $filepath));
-}
-
 function keep_create_attachments_under_workpackage(callable $requester, int $workpackage_id, array $attachments, callable $download) {
     foreach ($attachments as $attachment) {
         echo PHP_EOL . 'Attachment, ' . $attachment->filePath;

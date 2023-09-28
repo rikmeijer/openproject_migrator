@@ -30,7 +30,7 @@ function request(string $openproject_url, string $openproject_token) : callable 
             }
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             
-            return $method === 'DELETE' ? [204, null] : [200, 'application/json'];
+            return $method === 'DELETE' ? [204, null] : [201, 'application/json'];
         });
 
         curl_setopt($ch, CURLINFO_HEADER_OUT, true);
@@ -110,6 +110,25 @@ function list_workpackages(callable $requester, int $pageSize, int $offset) : ar
         'filters' => json_encode([['subject'=>["operator" => "~", "values" => ['20']]]])
     ])();
     return $workpackages->_embedded->elements;
+}
+
+function keep_find_attachment(string &$filetype, string $filepath) {
+    if (file_exists($filepath)) {
+        return $filepath;
+    } elseif (in_array($filetype, ['image/png', 'application/octet-stream']) === false) {
+        exit('File `' . $filepath . '` ('.$filetype.') not found');
+    }
+    
+    $basename = basename($filepath, '.png');
+    $jpeg_path = dirname($filepath) . DIRECTORY_SEPARATOR . $basename . '.jpg';
+    if (file_exists($jpeg_path)) {
+        $filetype = 'image/jpeg';
+        return $jpeg_path;
+    }
+    exit('File `' . $filepath . '` or `'. $jpeg_path .'` not found');
+}
+function keep_get_contents(string &$filetype, string $filepath) {
+    return file_get_contents(keep_find_attachment($filetype, $filepath));
 }
 
 function item_already_migrated(callable $requester, string $item_id) {
