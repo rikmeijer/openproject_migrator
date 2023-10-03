@@ -2,11 +2,11 @@
 
 require __DIR__ . DIRECTORY_SEPARATOR . 'openproject.php';
 
-function trello_date(string $datetime) : DateTimeImmutable {
-    return DateTimeImmutable::createFromFormat('X-m-d\\TH:i:s.vP', $datetime);
+function trello_date(?string $datetime) : \DateTimeImmutable|null {
+    return $datetime ? \DateTimeImmutable::createFromFormat('X-m-d\\TH:i:s.vP', $datetime) : null;
 }
 
-function trello(string $boardId, string $listName, callable $requester, Stevenmaguire\Services\Trello\Client $client) {
+function trello(string $boardId, string $listName, int $parent_id, callable $requester, Stevenmaguire\Services\Trello\Client $client) {
     $board = $client->getBoard($boardId);
 
     echo 'Dumping lists and cards on "' . $board->name . '"' . PHP_EOL;
@@ -24,7 +24,7 @@ function trello(string $boardId, string $listName, callable $requester, Stevenma
                 continue;
             }
 
-            $work_package = rikmeijer\openproject\create_workpackage($requester, $card->id, $card->name, $card->desc, $card->closed, trello_date($card->start), trello_date($card->due));
+            $work_package = rikmeijer\openproject\create_workpackage($requester, $card->id, $card->name, $card->desc, $card->closed, $parent_id, trello_date($card->start), trello_date($card->due));
             if (!isset($work_package->id)) {
                 var_dump($work_package);
                 exit;
@@ -76,7 +76,7 @@ function trello_create_tasks_under_workpackage(callable $requester, int $workpac
     }
 }
 
-trello($_ENV['TRELLO_BOARD_ID'], $_ENV['TRELLO_LIST_NAME'], rikmeijer\openproject\connect(rikmeijer\openproject\request($_ENV['OPENPROJECT_URL'], $_ENV['OPENPROJECT_PROJECT_ID'], $_ENV['OPENPROJECT_TOKEN'])), new Stevenmaguire\Services\Trello\Client(array(
+trello($_ENV['TRELLO_BOARD_ID'], $_ENV['TRELLO_LIST_NAME'], $_ENV['TRELLO_TARGET_ID'], rikmeijer\openproject\connect(rikmeijer\openproject\request($_ENV['OPENPROJECT_URL'], $_ENV['OPENPROJECT_TOKEN'])), new Stevenmaguire\Services\Trello\Client(array(
     //'callbackUrl' => 'http://your.domain/oauth-callback-url',
     //'expiration' => '3days',
     'key' => $_ENV['TRELLO_KEY'],

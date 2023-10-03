@@ -41,6 +41,7 @@ function request(string $openproject_url, string $openproject_token) : callable 
             return false;
         } elseif (curl_getinfo($ch, CURLINFO_HTTP_CODE) !== $expectedResponse[0]) {
             fwrite(STDERR, PHP_EOL . '[' . $path . '] unexpected ('.$expectedResponse[0].') response: ' . curl_getinfo($ch, CURLINFO_HTTP_CODE));
+            fwrite(STDERR, PHP_EOL .  $return);
             return false;
         }
         
@@ -175,7 +176,7 @@ function filter_existing_tasks(callable $requester, object $work_package, array 
     });
 }
 
-function create_workpackage(callable $requester, string $id, string $name, string $description, bool $closed, ?int $parent_id, ?DateTimeImmutable $start, ?DateTimeImmutable $due) {
+function create_workpackage(callable $requester, string $id, string $name, string $description, bool $closed, ?int $parent_id, ?\DateTimeImmutable $start, ?\DateTimeImmutable $due) {
     // types: 1 = task, 4 = feature, 2,3 = N/A, 5 = epic, 6 = us
     $data = [
                 'subject' => $name,
